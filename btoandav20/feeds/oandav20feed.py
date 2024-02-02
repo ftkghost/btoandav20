@@ -5,12 +5,15 @@ from datetime import datetime, timedelta, timezone, time
 
 import time as _time
 import threading
+import logging
 
 from backtrader.feed import DataBase
 from backtrader import TimeFrame, date2num, num2date
 from backtrader.utils.py3 import queue, with_metaclass
 
 from btoandav20.stores import oandav20store
+
+logger = logging.getLogger(__name__)
 
 
 class MetaOandaV20Data(DataBase.__class__):
@@ -239,6 +242,7 @@ class OandaV20Data(with_metaclass(MetaOandaV20Data, DataBase)):
             self.put_notification(self.DELAYED)
         if not self.p.candles:
             # recreate a new stream on call
+            logger.info("Creating a new price stream from oanda servers")
             self.qlive = self.o.streaming_prices(
                 self.p.dataname)
         elif instart:

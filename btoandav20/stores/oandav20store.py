@@ -697,7 +697,7 @@ class OandaV20Store(with_metaclass(MetaSingleton, object)):
                 if isinstance(e, v20.V20ConnectionError) or isinstance(e, v20.V20Timeout):
                     logger.info("Streaming events timed out {}".format(e))
                 else:
-                    logger.warn("Streaming event failed with {}".format(e))
+                    logger.warn("Streaming events failed with {}".format(e))
                 if (self.p.reconnections == 0 or (self.p.reconnections > 0
                                                   and reconnections > self.p.reconnections)):
                     # unable to reconnect after x times
@@ -714,24 +714,35 @@ class OandaV20Store(with_metaclass(MetaSingleton, object)):
 
     def _t_streaming_prices(self, dataname, q):
         '''Callback method for streaming prices'''
-        try:
-            response = self.oapi_stream.pricing.stream(
-                self.p.account,
-                instruments=dataname,
-            )
-            # process response
-            for msg_type, msg in response.parts():
-                if msg_type == 'pricing.ClientPrice':
-                    # put price into queue as dict
-                    q.put(msg.dict())
-        except (v20.V20ConnectionError, v20.V20Timeout) as e:
-            self.put_notification(str(e))
-            # notify feed of error
-            q.put({'msg': 'CONNECTION_ISSUE'})
-        except Exception as e:
-            self.put_notification(
-                self._create_error_notif(
-                    e, response))
+        reconnections = 0
+        while True:
+            try:
+                response = self.oapi_stream.pricing.stream(
+                    self.p.account,
+                    instruments=dataname,
+                )
+                # process response
+                for msg_type, msg in response.parts():
+                    if msg_type == 'pricing.ClientPrice':
+                        # put price into queue as dict
+                        q.put(msg.dict())
+            except (v20.V20ConnectionError, v20.V20Timeout, Exception) as e:
+                if isinstance(e, v20.V20ConnectionError) or isinstance(e, v20.V20Timeout):
+                    logger.info("Streaming prices timed out {}".format(e))
+                else:
+                    logger.warn("Streaming prices failed with {}".format(e))
+                if (self.p.reconnections == 0 or (self.p.reconnections > 0
+                                                  and reconnections > self.p.reconnections)):
+                    # unable to reconnect after x times
+                    logger.error(
+                        'Giving up reconnecting streaming prices')
+                    return
+                reconnections += 1
+                if self.p.reconntimeout is not None:
+                    _time.sleep(self.p.reconntimeout)
+                logger.info('Trying to reconnect streaming prices ({} of {})'.format(
+                    reconnections,
+                    self.p.reconnections))
 
     def _t_candles(self, dataname, dtbegin, dtend, timeframe, compression,
                    candleFormat, includeFirst, onlyComplete, q):
