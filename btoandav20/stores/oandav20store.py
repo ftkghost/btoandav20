@@ -7,6 +7,7 @@ import copy
 import json
 import time as _time
 from datetime import datetime, timezone
+import logging
 
 import v20
 
@@ -14,6 +15,9 @@ import backtrader as bt
 from backtrader.metabase import MetaParams
 from backtrader.utils.py3 import queue, with_metaclass
 from .oandaposition import OandaPosition
+
+logger = logging.getLogger(__name__)
+
 
 class SerializableEvent(object):
     '''A threading.Event that can be serialized.'''
@@ -278,7 +282,8 @@ class OandaV20Store(with_metaclass(MetaSingleton, object)):
                 price = (
                     float(p['long']['averagePrice']) if size > 0
                     else float(p['short']['averagePrice']))
-                self._server_positions[p['instrument']] = OandaPosition(size, price, dt=_utc_now)
+                self._server_positions[p['instrument']] = OandaPosition(
+                    size, price, dt=_utc_now)
         except (v20.V20ConnectionError, v20.V20Timeout) as e:
             self.put_notification(str(e))
         except Exception as e:
@@ -290,10 +295,10 @@ class OandaV20Store(with_metaclass(MetaSingleton, object)):
             return pos
         except NameError:
             return None
-    
-    def get_server_position(self, update_latest = False):
+
+    def get_server_position(self, update_latest=False):
         if update_latest:
-           self.get_positions()
+            self.get_positions()
 
         return self._server_positions
 
@@ -635,19 +640,21 @@ class OandaV20Store(with_metaclass(MetaSingleton, object)):
                 self._currency = accinfo.currency
                 self._leverage = 1/accinfo.marginRate
 
-                #reset
+                # reset
                 self._server_positions = collections.defaultdict(OandaPosition)
-                #Position
+                # Position
                 # convert positions to dict
                 _utc_now = datetime.utcnow()
                 for idx, val in enumerate(pos):
                     pos[idx] = val.dict()
                 for p in pos:
-                    size = float(p['long']['units']) + float(p['short']['units'])
+                    size = float(p['long']['units']) + \
+                        float(p['short']['units'])
                     price = (
                         float(p['long']['averagePrice']) if size > 0
                         else float(p['short']['averagePrice']))
-                    self._server_positions[p['instrument']] = OandaPosition(size, price,dt=_utc_now)
+                    self._server_positions[p['instrument']] = OandaPosition(
+                        size, price, dt=_utc_now)
             except KeyError:
                 pass
 
@@ -686,24 +693,24 @@ class OandaV20Store(with_metaclass(MetaSingleton, object)):
                             self._transaction(msg.dict())
                             last_id = msg.id
 
-            except (v20.V20ConnectionError, v20.V20Timeout) as e:
-                self.put_notification(str(e))
-                if (self.p.reconnections == 0 or self.p.reconnections > 0
-                        and reconnections > self.p.reconnections):
+            except (v20.V20ConnectionError, v20.V20Timeout, Exception) as e:
+                if isinstance(e, v20.V20ConnectionError) or isinstance(e, v20.V20Timeout):
+                    logger.info("Streaming events timed out {}".format(e))
+                else:
+                    logger.warn("Streaming event failed with {}".format(e))
+                if (self.p.reconnections == 0 or (self.p.reconnections > 0
+                                                  and reconnections > self.p.reconnections)):
                     # unable to reconnect after x times
-                    self.put_notification('Giving up reconnecting streaming events')
+                    logger.error(
+                        'Giving up reconnecting streaming events')
                     return
                 reconnections += 1
                 if self.p.reconntimeout is not None:
                     _time.sleep(self.p.reconntimeout)
-                self.put_notification('Trying to reconnect streaming events ({} of {})'.format(
+                logger.info('Trying to reconnect streaming events ({} of {})'.format(
                     reconnections,
                     self.p.reconnections))
                 continue
-            except Exception as e:
-                self.put_notification(
-                    self._create_error_notif(
-                        e, response))
 
     def _t_streaming_prices(self, dataname, q):
         '''Callback method for streaming prices'''
