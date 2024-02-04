@@ -697,7 +697,7 @@ class OandaV20Store(with_metaclass(MetaSingleton, object)):
                 if isinstance(e, v20.V20ConnectionError) or isinstance(e, v20.V20Timeout):
                     logger.info("Streaming events timed out {}".format(e))
                 else:
-                    logger.warn("Streaming events failed with {}".format(e))
+                    logger.exception("Streaming events failed")
                 if (self.p.reconnections == 0 or (self.p.reconnections > 0
                                                   and reconnections > self.p.reconnections)):
                     # unable to reconnect after x times
