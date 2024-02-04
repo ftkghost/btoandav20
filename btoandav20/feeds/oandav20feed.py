@@ -521,6 +521,15 @@ class OandaV20Data(with_metaclass(MetaOandaV20Data, DataBase)):
                     return False
 
     def _load_tick(self, msg):
+        if 'time' not in msg:
+            logger.error("time field missing from tick message {}".format(msg))
+            return False
+        if 'asks' not in msg:
+            logger.error("asks field missing from tick message {}".format(msg))
+            return False
+        if 'bids' not in msg:
+            logger.error("bids field missing from tick message {}".format(msg))
+            return False
         dtobj = datetime.utcfromtimestamp(float(msg['time']))
         dt = date2num(dtobj)
         if dt <= self.l.datetime[-1]:
