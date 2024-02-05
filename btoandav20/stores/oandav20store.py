@@ -474,6 +474,7 @@ class OandaV20Store(with_metaclass(MetaSingleton, object)):
 
     def streaming_events(self):
         '''Creates threads for event streaming'''
+        logger.info("Creating a new thread for events streaming...")
         q = queue.Queue()
         kwargs = {'q': q}
         t = threading.Thread(target=self._t_streaming_events, kwargs=kwargs)
@@ -483,6 +484,7 @@ class OandaV20Store(with_metaclass(MetaSingleton, object)):
 
     def streaming_prices(self, dataname):
         '''Creates threads for price streaming'''
+        logger.info("Creating a new thread for price streaming...")
         q = queue.Queue()
         kwargs = {'q': q, 'dataname': dataname}
         t = threading.Thread(target=self._t_streaming_prices, kwargs=kwargs)
@@ -666,6 +668,13 @@ class OandaV20Store(with_metaclass(MetaSingleton, object)):
         last_id = None
         reconnections = 0
         while True:
+            if reconnections != 0:
+                if self.p.reconntimeout is not None:
+                    _time.sleep(self.p.reconntimeout)
+                logger.info('Trying to reconnect streaming events ({} of {})'.format(
+                    reconnections,
+                    self.p.reconnections))
+
             try:
                 response = self.oapi_stream.transaction.stream(
                     self.p.account
@@ -697,25 +706,27 @@ class OandaV20Store(with_metaclass(MetaSingleton, object)):
                 if isinstance(e, v20.V20ConnectionError) or isinstance(e, v20.V20Timeout):
                     logger.info("Streaming events timed out {}".format(e))
                 else:
-                    logger.exception("Streaming events failed")
+                    logger.exception(
+                        "Streaming events failed with {}".format(e))
                 if (self.p.reconnections == 0 or (self.p.reconnections > 0
                                                   and reconnections > self.p.reconnections)):
                     # unable to reconnect after x times
                     logger.error(
                         'Giving up reconnecting streaming events')
                     return
+            finally:
                 reconnections += 1
-                if self.p.reconntimeout is not None:
-                    _time.sleep(self.p.reconntimeout)
-                logger.info('Trying to reconnect streaming events ({} of {})'.format(
-                    reconnections,
-                    self.p.reconnections))
-                continue
 
     def _t_streaming_prices(self, dataname, q):
         '''Callback method for streaming prices'''
         reconnections = 0
         while True:
+            if reconnections != 0:
+                logger.info('Trying to reconnect streaming prices ({} of {})'.format(
+                    reconnections,
+                    self.p.reconnections))
+                if self.p.reconntimeout is not None:
+                    _time.sleep(self.p.reconntimeout)
             try:
                 response = self.oapi_stream.pricing.stream(
                     self.p.account,
@@ -730,19 +741,16 @@ class OandaV20Store(with_metaclass(MetaSingleton, object)):
                 if isinstance(e, v20.V20ConnectionError) or isinstance(e, v20.V20Timeout):
                     logger.info("Streaming prices timed out {}".format(e))
                 else:
-                    logger.warn("Streaming prices failed with {}".format(e))
+                    logger.exception(
+                        "Streaming prices failed with {}".format(e))
                 if (self.p.reconnections == 0 or (self.p.reconnections > 0
                                                   and reconnections > self.p.reconnections)):
                     # unable to reconnect after x times
                     logger.error(
                         'Giving up reconnecting streaming prices')
                     return
+            finally:
                 reconnections += 1
-                if self.p.reconntimeout is not None:
-                    _time.sleep(self.p.reconntimeout)
-                logger.info('Trying to reconnect streaming prices ({} of {})'.format(
-                    reconnections,
-                    self.p.reconnections))
 
     def _t_candles(self, dataname, dtbegin, dtend, timeframe, compression,
                    candleFormat, includeFirst, onlyComplete, q):
