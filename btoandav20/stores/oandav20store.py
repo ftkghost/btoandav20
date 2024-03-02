@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 import logging
 
 import v20
+import v20.response
 
 import backtrader as bt
 from backtrader.metabase import MetaParams
@@ -63,6 +64,35 @@ class MetaSingleton(MetaParams):
                 super(MetaSingleton, cls).__call__(*args, **kwargs))
 
         return cls._singleton
+
+
+def retry(times, exceptions, delay=1):
+    """
+    Retry Decorator
+    Retries the wrapped function/method `times` times if the exceptions listed
+    in ``exceptions`` are thrown
+    :param times: The number of times to repeat the wrapped function/method
+    :type times: Int
+    :param Exceptions: Lists of exceptions that trigger a retry attempt
+    :type Exceptions: Tuple of Exceptions
+    """
+    def decorator(func):
+        def newfn(*args, **kwargs):
+            attempt = 0
+            while attempt < times:
+                try:
+                    return func(*args, **kwargs)
+                except exceptions:
+                    logger.exception(
+                        'Exception thrown when attempting to run %s, attempt '
+                        '%d of %d' % (func, attempt, times)
+                    )
+                    attempt += 1
+                    if delay:
+                        _time.sleep(delay)
+            return func(*args, **kwargs)
+        return newfn
+    return decorator
 
 
 class OandaV20Store(with_metaclass(MetaSingleton, object)):
@@ -268,33 +298,24 @@ class OandaV20Store(with_metaclass(MetaSingleton, object)):
         self.notifs.append(None)  # put a mark / threads could still append
         return [x for x in iter(self.notifs.popleft, None)]
 
+    @retry(times=3, exceptions=(v20.V20ConnectionError, v20.V20Timeout, v20.response.ResponseUnexpectedStatus), delay=1)
     def get_positions(self):
         '''Returns the currently open positions'''
-        try:
-            response = self.oapi.position.list_open(self.p.account)
-            pos = response.get('positions', 200)
-            # convert positions to dict
-            for idx, val in enumerate(pos):
-                pos[idx] = val.dict()
-            _utc_now = datetime.utcnow()
-            for p in pos:
-                size = float(p['long']['units']) + float(p['short']['units'])
-                price = (
-                    float(p['long']['averagePrice']) if size > 0
-                    else float(p['short']['averagePrice']))
-                self._server_positions[p['instrument']] = OandaPosition(
-                    size, price, dt=_utc_now)
-        except (v20.V20ConnectionError, v20.V20Timeout) as e:
-            self.put_notification(str(e))
-        except Exception as e:
-            self.put_notification(
-                self._create_error_notif(
-                    e, response))
+        response = self.oapi.position.list_open(self.p.account)
+        pos = response.get('positions', 200)
+        # convert positions to dict
+        for idx, val in enumerate(pos):
+            pos[idx] = val.dict()
+        _utc_now = datetime.utcnow()
+        for p in pos:
+            size = float(p['long']['units']) + float(p['short']['units'])
+            price = (
+                float(p['long']['averagePrice']) if size > 0
+                else float(p['short']['averagePrice']))
+            self._server_positions[p['instrument']] = OandaPosition(
+                size, price, dt=_utc_now)
 
-        try:
-            return pos
-        except NameError:
-            return None
+        return pos
 
     def get_server_position(self, update_latest=False):
         if update_latest:
@@ -306,134 +327,74 @@ class OandaV20Store(with_metaclass(MetaSingleton, object)):
         '''Returns the granularity useable for oanda'''
         return self._GRANULARITIES.get((timeframe, compression), None)
 
+    @retry(times=3, exceptions=(v20.V20ConnectionError, v20.V20Timeout, v20.response.ResponseUnexpectedStatus), delay=1)
     def get_instrument(self, dataname):
         '''Returns details about the requested instrument'''
-        try:
-            response = self.oapi.account.instruments(
-                self.p.account,
-                instruments=dataname)
-            inst = response.get('instruments', 200)
-            # convert instruments to dict
-            for idx, val in enumerate(inst):
-                inst[idx] = val.dict()
-        except (v20.V20ConnectionError, v20.V20Timeout) as e:
-            self.put_notification(str(e))
-        except Exception as e:
-            self.put_notification(
-                self._create_error_notif(
-                    e, response))
+        response = self.oapi.account.instruments(
+            self.p.account,
+            instruments=dataname)
+        inst = response.get('instruments', 200)
+        # convert instruments to dict
+        for idx, val in enumerate(inst):
+            inst[idx] = val.dict()
+        return inst[0]
 
-        try:
-            return inst[0]
-        except NameError:
-            return None
-
+    @retry(times=3, exceptions=(v20.V20ConnectionError, v20.V20Timeout, v20.response.ResponseUnexpectedStatus), delay=1)
     def get_instruments(self, dataname):
         '''Returns details about available instruments'''
-        try:
-            response = self.oapi.account.instruments(
-                self.p.account,
-                instruments=dataname)
-            inst = response.get('instruments', 200)
-            # convert instruments to dict
-            for idx, val in enumerate(inst):
-                inst[idx] = val.dict()
-        except (v20.V20ConnectionError, v20.V20Timeout) as e:
-            self.put_notification(str(e))
-        except Exception as e:
-            self.put_notification(
-                self._create_error_notif(
-                    e, response))
+        response = self.oapi.account.instruments(
+            self.p.account,
+            instruments=dataname)
+        inst = response.get('instruments', 200)
+        # convert instruments to dict
+        for idx, val in enumerate(inst):
+            inst[idx] = val.dict()
 
-        try:
-            return inst
-        except NameError:
-            return None
+        return inst
 
+    @retry(times=3, exceptions=(v20.V20ConnectionError, v20.V20Timeout, v20.response.ResponseUnexpectedStatus), delay=1)
     def get_pricing(self, dataname):
         '''Returns details about current price'''
-        try:
-            response = self.oapi.pricing.get(self.p.account,
-                                             instruments=dataname)
-            prices = response.get('prices', 200)
-            # convert prices to dict
-            for idx, val in enumerate(prices):
-                prices[idx] = val.dict()
-        except (v20.V20ConnectionError, v20.V20Timeout) as e:
-            self.put_notification(str(e))
-        except Exception as e:
-            self.put_notification(
-                self._create_error_notif(
-                    e, response))
+        response = self.oapi.pricing.get(self.p.account,
+                                         instruments=dataname)
+        prices = response.get('prices', 200)
+        # convert prices to dict
+        for idx, val in enumerate(prices):
+            prices[idx] = val.dict()
 
-        try:
-            return prices[0]
-        except NameError:
-            return None
+        return prices[0]
 
+    @retry(times=3, exceptions=(v20.V20ConnectionError, v20.V20Timeout, v20.response.ResponseUnexpectedStatus), delay=1)
     def get_pricings(self, dataname):
         '''Returns details about current prices'''
-        try:
-            response = self.oapi.pricing.get(self.p.account,
-                                             instruments=dataname)
-            prices = response.get('prices', 200)
-            # convert prices to dict
-            for idx, val in enumerate(prices):
-                prices[idx] = val.dict()
-        except (v20.V20ConnectionError, v20.V20Timeout) as e:
-            self.put_notification(str(e))
-        except Exception as e:
-            self.put_notification(
-                self._create_error_notif(
-                    e, response))
+        response = self.oapi.pricing.get(self.p.account,
+                                         instruments=dataname)
+        prices = response.get('prices', 200)
+        # convert prices to dict
+        for idx, val in enumerate(prices):
+            prices[idx] = val.dict()
+        return prices
 
-        try:
-            return prices
-        except NameError:
-            return None
-
+    @retry(times=3, exceptions=(v20.V20ConnectionError, v20.V20Timeout, v20.response.ResponseUnexpectedStatus), delay=1)
     def get_transactions_range(self, from_id, to_id, exclude_outer=False):
         '''Returns all transactions between range'''
-        try:
-            response = self.oapi.transaction.range(
-                self.p.account,
-                fromID=from_id,
-                toID=to_id)
-            transactions = response.get('transactions', 200)
-            if exclude_outer:
-                del transactions[0], transactions[-1]
+        response = self.oapi.transaction.range(
+            self.p.account,
+            fromID=from_id,
+            toID=to_id)
+        transactions = response.get('transactions', 200)
+        if exclude_outer:
+            del transactions[0], transactions[-1]
+        return transactions
 
-        except (v20.V20ConnectionError, v20.V20Timeout) as e:
-            self.put_notification(str(e))
-        except Exception as e:
-            self.put_notification(
-                self._create_error_notif(
-                    e, response))
-
-        try:
-            return transactions
-        except NameError:
-            return None
-
+    @retry(times=3, exceptions=(v20.V20ConnectionError, v20.V20Timeout, v20.response.ResponseUnexpectedStatus), delay=1)
     def get_transactions_since(self, id):
         '''Returns all transactions since id'''
-        try:
-            response = self.oapi.transaction.since(
-                self.p.account,
-                id=id)
-            transactions = response.get('transactions', 200)
-
-        except (v20.V20ConnectionError, v20.V20Timeout) as e:
-            self.put_notification(str(e))
-        except Exception as e:
-            self.put_notification(
-                self._create_error_notif(
-                    e, response))
-
-        try:
-            return transactions
-        except NameError:
-            return None
+        response = self.oapi.transaction.since(
+            self.p.account,
+            id=id)
+        transactions = response.get('transactions', 200)
+        return transactions
 
     def get_cash(self):
         '''Returns the available cash'''
