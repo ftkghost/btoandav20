@@ -46,7 +46,7 @@ class OandaV20Sizer(bt.Sizer):
                     / (1 / float(convprice['closeoutAsk'])))
 
         if self.p.percents != 0:
-            size = avail * (self.p.percents / 100)
+            size = cash_to_use
         elif self.p.amount != 0:
             size = cash_to_use * (self.p.amount / cash)
         else:
