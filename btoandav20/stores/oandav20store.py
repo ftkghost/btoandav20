@@ -82,10 +82,11 @@ def retry(times, exceptions, delay=1):
             while attempt < times:
                 try:
                     return func(*args, **kwargs)
-                except exceptions:
+                except exceptions as e:
+                    err_msg = getattr(e, 'message', str(e))
                     logger.exception(
                         'Exception thrown when attempting to run %s, attempt '
-                        '%d of %d' % (func, attempt, times)
+                        '%d of %d. %s' % (func, attempt, times, err_msg)
                     )
                     attempt += 1
                     if delay:
@@ -693,6 +694,7 @@ class OandaV20Store(with_metaclass(MetaSingleton, object)):
                     self.p.account,
                     instruments=dataname,
                 )
+                reconnections = 0
                 # process response
                 for msg_type, msg in response.parts():
                     if msg_type == 'pricing.ClientPrice':
